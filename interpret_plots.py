@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import (MultipleLocator, FormatStrFormatter, AutoMinorLocator)
 import matplotlib.dates as mdates
 import matplotlib.patheffects as path_effects
+from scipy.interpolate import RegularGridInterpolator
 
 # font sizes and styles:--------------------------------+
 titleSize = 16
@@ -37,6 +38,182 @@ years_fmt = mdates.DateFormatter('%Y/%m')
 # months_fmt = mdates.DateFormatter('%m')
 # ----------------------------------------------------END
 
+def plot_spectrum(fname_cdf, iK, L_, fname_plot, nt = 2, universal_axes_limits = True):
+
+    cdf = pycdf.CDF(fname_cdf)
+    dynamic = cdf.attrs[interpret_cdf.lab_dynamic][0]
+    if dynamic > 0: 
+        dynamic = True
+    else:
+        dynamic = False
+
+    #which times to plot (for a dynamic run):
+    ax_t = cdf[interpret_cdf.lab_axt]
+    if dynamic:
+        t_plot = np.linspace(ax_t[-1], ax_t[0], nt)
+    else:
+        t_plot = [ax_t[0]]
+        nt = 1
+
+    print("", "1r x 1c plot")
+
+    #set up plot:
+    fig, ax = plt.subplots(1, 1)
+    usegrid = True
+    cmap = matplotlib.cm.get_cmap('viridis')
+
+    ax_mu = cdf[interpret_cdf.lab_axmu]
+    ax_K = cdf[interpret_cdf.lab_axK]
+    ax_L = cdf[interpret_cdf.lab_axL]
+    map_alpha = cdf[interpret_cdf.lab_map]
+
+    #------------------------------------------------------------------------------+
+    # make plot                                                                    |
+    #------------------------------------------------------------------------------+
+    ax.set_xscale('log')
+    ax.set_yscale('log')
+
+    idx_L = 0
+    while ax_L[idx_L] < L_:
+        idx_L += 1
+    idx_L_1 = idx_L
+    idx_L_0 = idx_L_1 - 1
+    frac_L = (L_ - ax_L[idx_L_0])/(ax_L[idx_L_1] - ax_L[idx_L_0])
+    if frac_L == 1.: idx_L_0 = idx_L_1
+
+    if idx_L_0 < 0:
+        print("Warning: L = {:.2f} out of range".format(L_))
+        return 0
+
+    for idx_K in range(np.size(ax_K)):
+        if cdf[interpret_cdf.lab_map][idx_L_0, idx_K] <= 0: break
+    idx_K_max = idx_K - 1
+    if iK > idx_K_max:
+        print("Warning: iK = {} out of range for L = {:.2f}".format(iK, L_))
+        return 0
+
+    aeq = (1 - frac_L) * map_alpha[idx_L_0, iK] + frac_L * map_alpha[idx_L_1, iK]
+    #enonzero = cdf[interpret_cdf.lab_en][0, :, :, :] > 0
+    #enonzero = cdf[interpret_cdf.lab_en][0, :, :, :][enonzero]
+    emin = 0.1#np.min(enonzero)
+    emax = 100#np.max(enonzero)
+
+    #find axes limits in terms of flux:
+    jmin = cdf[interpret_cdf.lab_f][0,0,0,-1]
+    jmax = 0
+    for idx_t in range(len(ax_t)):
+        fnonzero_idx = cdf[interpret_cdf.lab_f][idx_t,:,:,1:] > 0
+        fnonzero = cdf[interpret_cdf.lab_f][idx_t,:,:,1:][fnonzero_idx]
+        e_correspnging = cdf[interpret_cdf.lab_en][0, :, :, 1:][fnonzero_idx]
+
+        fbelowemax = fnonzero[e_correspnging <= emax]
+        ebelowemax = e_correspnging[e_correspnging <= emax]
+
+        faboveemin_belowemax = fbelowemax[ebelowemax >= emin]
+        eaboveemin_belowemax = ebelowemax[ebelowemax >= emin]
+
+        fmin_idx = np.argmin(faboveemin_belowemax)
+        fmin = faboveemin_belowemax[fmin_idx]
+        e_fmin = eaboveemin_belowemax[fmin_idx]
+
+        fmax_idx = np.argmax(faboveemin_belowemax)
+        fmax = faboveemin_belowemax[fmax_idx]
+        e_fmax = eaboveemin_belowemax[fmax_idx]
+        
+        jmin_t = interpret_tools.f2j(e_fmin, fmin)
+        jmax_t = interpret_tools.f2j(e_fmax, fmax)
+        if jmin_t < jmin:
+            jmin = jmin_t
+        if jmax_t > jmax:
+            jmax = jmax_t
+
+
+    #find the x axis (energy):
+    spec_en_L0 = cdf[interpret_cdf.lab_en][0, :, iK, idx_L_0]
+    spec_en_L1 = cdf[interpret_cdf.lab_en][0, :, iK, idx_L_1]
+    spec_en = (1 - frac_L) * spec_en_L0 + frac_L * spec_en_L1
+
+    abovezero = False #for checking we don't output the f = 0 boundary condition in the loss cone
+
+    #interpolate to the required time
+    for time_plot in t_plot:
+        #get idx_t_0 and idx_t_1 surrounding the time we want to plot:
+        idx_t_1 = 0
+        while ax_t[idx_t_1] < time_plot:
+            idx_t_1 += 1
+        
+        if not dynamic:
+            idx_t_0 = idx_t_1
+            frac_t = 1.
+        else:
+            idx_t_0 = idx_t_1 - 1
+            frac_t = (time_plot - ax_t[idx_t_0])/(ax_t[idx_t_1] - ax_t[idx_t_0])
+
+        spec_f_t0_L0 = cdf[interpret_cdf.lab_f][idx_t_0, :, iK, idx_L_0]
+        spec_f_t1_L0 = cdf[interpret_cdf.lab_f][idx_t_1, :, iK, idx_L_0]
+        spec_f_t0_L1 = cdf[interpret_cdf.lab_f][idx_t_0, :, iK, idx_L_1]
+        spec_f_t1_L1 = cdf[interpret_cdf.lab_f][idx_t_1, :, iK, idx_L_1]
+
+        spec_f_t0 = (1 - frac_L) * spec_f_t0_L0 + frac_L * spec_f_t0_L1
+        spec_f_t1 = (1 - frac_L) * spec_f_t1_L0 + frac_L * spec_f_t1_L1
+
+        spec_f = (1 - frac_t) * spec_f_t0 + frac_t * spec_f_t1
+        spec_j = interpret_tools.f2j(spec_en, spec_f)
+
+        colour = interpret_tools.get_colour_from_time(time_plot, ax_t, cmap)
+        if not dynamic: color = "black"
+
+        if np.sum(spec_j>0): abovezero = True
+        ax.plot(spec_en, spec_j, color=colour, linewidth=0.8, alpha=1)
+
+        #label K
+        ax.text(0.05,0.05,"$K=$ " + "{:.3f}".format(ax_K[iK]) + "$G^{0.5} R_{E}$\n" + "$\\alpha_{\\mathrm{eq}}=$" + "{:.2f}".format(aeq) + "$^{\\circ}$\n" + "$L=$" + "{:.2f}".format(L_),rotation=0,
+            color='black', size=9, ha="left", va="bottom", transform=ax.transAxes)
+
+
+    if dynamic:
+        #label each dynamic simulation:
+        shadow = False
+        textax = ax
+        n = 1
+        for idx_t, time_plot in enumerate(t_plot):
+            colour = interpret_tools.get_colour_from_time(time_plot, ax_t, cmap)
+            time_dt = datetime.fromtimestamp(time_plot)
+            if len(t_plot) > n*12:
+                labelheight = n*(idx_t * 1.0/(len(t_plot)-1))
+            else:
+                labelheight = n*(idx_t * 1.0/(n*12))
+
+            text = textax.text(1.1, labelheight, time_dt.strftime("%j/%Y"), transform=textax.transAxes, color=colour,
+                va='center',fontdict={'fontsize': yaxisSize-4})
+
+            if shadow:
+                text.set_path_effects([path_effects.Stroke(linewidth=0.8, foreground='black'),
+                                       path_effects.Normal()])
+
+
+    if not abovezero:
+        print("","data out of range")
+        return 0
+
+    if usegrid:
+        ax.grid(which='minor', alpha=0.2)
+        ax.grid(which='major', alpha=0.5)
+
+    ax.yaxis.set_ticks_position('both')
+    ax.xaxis.set_tick_params(direction='out', length=5, labelsize=xtickSize)#, which='bottom'
+    ax.yaxis.set_tick_params(direction='out', length=2, labelsize=ytickSize)#, which='bottom'
+    ax.tick_params(labelsize=xtickSize)
+    ax.set_ylabel('$j$ [cm$^{-2}$s$^{-1}$str$^{-1}$MeV$^{-1}$]', fontdict={'fontsize': yaxisSize-2})
+    ax.set_xlabel('$E$ [MeV]', fontdict={'fontsize': yaxisSize})
+    if universal_axes_limits:
+        ax.set_xlim((emin, emax))
+        ax.set_ylim((jmin, jmax))
+    plt.tight_layout()
+    plt.savefig(fname_plot + ".pdf", format= 'pdf')
+    print("","saved figure to", fname_plot)
+    plt.close()
+    return 1
 
 
 def plot_padist_panels(fname_cdf, energies, Lshells, fname_plot, nt = 2):

@@ -12,9 +12,11 @@ from spacepy import pycdf
 
 wd_current = "./"
 
+plot_spectrums = True
 plot_profile = True
 plot_pad = True
 plot_anis = True
+
 
 
 #scan for solution directories:
@@ -80,6 +82,35 @@ os.mkdir(wd_local_plots)
 print()
 
 
+
+
+######################################################################################################################
+######################################################################################################################
+
+#
+#make plots of spectrum:
+#
+
+if plot_spectrums:
+    print("Plotting spectrums...")
+
+    #fixed L, fixed pitch angle/ K
+    nt = 2
+    Ls = [1.2, 1.25, 1.3, 1.35, 1.4, 1.45, 1.5, 1.55, 1.6, 1.65, 1.7, 1.75, 1.8, 1.85, 1.9, 1.95]#, 1.3333333, 2.0] #MeV/G, for plot_f_vs_L_mu_panels
+    
+    for L_ in Ls:
+        #make a new directory for each L:
+        dir_L = join(wd_local_plots, "spectrum_L{:.2f}".format(L_).replace(".","-"))
+        os.mkdir(dir_L)
+
+        iK = 0 #plot the spectrum at every K from this index and up
+        inrange = True
+        while inrange:
+            fname_plot = join(dir_L, prefix + '_spectrum_iK{:03d}'.format(iK).replace(".","-"))
+            inrange = interpret_plots.plot_spectrum(fname_cdf, iK, L_, fname_plot, nt = nt, universal_axes_limits = True)
+            iK += 1
+
+    print()
 
 ######################################################################################################################
 ######################################################################################################################

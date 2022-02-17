@@ -6,4 +6,4 @@ Dependencies are listed in requirements.txt. To install them, use: pip install -
 Usage: python plot_examples.py
 
 
-The following lines of plot_examples.py can be modified to plot different energies/times, etc.: lines 95 - 98 for profile plots; lines 118 - 120 for pitch angle distributions; and lines 138 - 139 for anisotropy factor n vs. L plots
+The following lines of plot_examples.py can be modified to plot different energies/times, etc.: lines 98 - 99 for spectrum plots; lines 126 - 129 for profile plots; lines 149 - 151 for pitch angle distributions; and lines 169 - 170 for anisotropy factor n vs. L plots
